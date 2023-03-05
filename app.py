@@ -1,9 +1,6 @@
 import time
 from urllib import request
-
-
 from flask import request
-
 import dash
 from dash import dcc
 from dash import html
@@ -12,6 +9,7 @@ from dash.dependencies import Input, Output, State
 import json
 import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
+from ua_parser import user_agent_parser
 
 import utils.dash_reusable_components as drc
 import utils.figures as figs
@@ -43,50 +41,56 @@ app = dash.Dash(
     ],
 )
 
-# Set the server's user agent string to an empty string and parse to detect device type
+# globals
 user_agent_string = ''
-user_agent = parse(user_agent_string)
-# if parsed returned value has is_mobile attribute; device_type set to whatever that is
-if user_agent.is_mobile:
-    device_type = user_agent.device.family
-else:
-    device_type = 'desktop'
-print(f'This is a {device_type} device.')
-sys.stdout.flush()
+device_type = ''
 
 
-@app.callback(
-    dash.dependencies.Output('device-type', 'children'),
-    [dash.dependencies.Input('url', 'href')]
-)
-def detect_device_type(href):
-    global user_agent_string
-    if not user_agent_string:
-        user_agent_string = request.headers.get('User-Agent')
-    user_agent = parse(user_agent_string)
-    if user_agent.is_mobile:
-        device_type = user_agent.device.family
-    else:
+# parse the user agent string to detect the device type
+def detect_device_type(user_agent_string):
+    global device_type
+    user_agent = user_agent_parser.Parse(user_agent_string)
+    if user_agent['device']['family'] == 'Other':
         device_type = 'desktop'
+    else:
+        device_type = user_agent['device']['family']
     print(f'This is a {device_type} device.')
-    sys.stdout.flush()
     return device_type
 
 
-def resize_screen_user():
-    device_type = detect_device_type('')
+# use this function to test device detector function/can use to print device type
+def print_device_type_test(user_agent_string_ipad_test):
+    global device_type
+    user_agent = user_agent_parser.Parse(user_agent_string_ipad_test)
+    if user_agent['device']['family'] == 'Other':
+        device_type = 'desktop'
+    else:
+        device_type = user_agent['device']['family']
+    print(f'This is a {device_type} device.')
+    return device_type
+
+
+# determines the screen size based on the device type/can specify device parameters for each device
+# returns js code created resized div
+def resize_screen_user(device_type):
     if device_type == 'desktop':
-        return ''
-    if device_type == 'iPhone':
-        width = 375  # set the screen width for iPhones
-        height = 667  # set the screen height for iPhones
+        width = 500
+        height = 500
+    elif device_type == 'iPhone':
+        width = 375
+        height = 667
     elif device_type == 'iPad':
-        width = 768  # set the screen width for iPads
-        height = 1024  # set the screen height for iPads
-    js = f"window.resizeTo({width}, {height})"  # construct the JavaScript to resize the screen
+        width = 768
+        height = 1024
+    else:
+        width = 375
+        height = 667
+    js = f"window.resizeTo({width}, {height});"
     return js
 
 
+# generates an HTML code snippet that includes a script element with the given
+# JavaScript code, which can be appended to the layout of the Dash app to modify its behavior.
 def inject_js(js):
     return html.Div(
         children=[
@@ -98,10 +102,27 @@ def inject_js(js):
     )
 
 
+# appends a div element to the app and resizes. does not affect anything else in the app.
 def update_display_window():
-    js = resize_screen_user()
+    global device_type
+    js = resize_screen_user(device_type)
     if js:
         app.layout.children.append(inject_js(js))
+        print("Window resized successfully!")
+
+
+# register a callback function to detect the user agent string
+@app.callback(
+    dash.dependencies.Output('device-type', 'children'),
+    [dash.dependencies.Input('url', 'href')]
+)
+# receives called href as input and returns device type.
+def update_device_type(href):
+    global user_agent_string
+    if not user_agent_string:
+        user_agent_string = href
+        detect_device_type(user_agent_string)
+    return device_type
 
 
 TAB_STYLE = {
@@ -1317,6 +1338,6 @@ def main_output_emu(
 
 # Running the server
 if __name__ == "__main__":
-
+    # calls update function to signal if window was resized correctly.
+    update_display_window()
     app.run_server(debug=True, dev_tools_ui=True, dev_tools_props_check=False)
-
